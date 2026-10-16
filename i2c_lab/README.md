@@ -29,7 +29,7 @@ Figure 1: Full message "Embedded" sent over I2C
 Figure 2: Zoomed in picture showing the bits clearly labeled.
 
 ## Video Link
-
+https://youtu.be/sZ0SQH0CDVQ
 
 ## Conclusion
 Overall this project helped deepen my understanding of I2C and gave valuable experience with oscilloscope testing. I did not face any significant challenges!
