@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +31,14 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define SDA_PIN GPIO_PIN_2
+#define SCL_PIN GPIO_PIN_3
 
+#define SDA_HIGH HAL_GPIO_WritePin(GPIOC, SDA_PIN, GPIO_PIN_SET)
+#define SDA_LOW HAL_GPIO_WritePin(GPIOC, SDA_PIN, GPIO_PIN_RESET)
+
+#define SCL_HIGH HAL_GPIO_WritePin(GPIOC, SCL_PIN, GPIO_PIN_SET)
+#define SCL_LOW HAL_GPIO_WritePin(GPIOC, SCL_PIN, GPIO_PIN_RESET)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -43,7 +50,8 @@
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+const char msg[] = "Embedded";
+uint8_t address = 0x2E;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -56,6 +64,71 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void delay_cycles(volatile uint32_t count ){
+	count=count*100;
+	while (count--){
+		__NOP(); // no operation
+	}
+}
+
+void I2C_Start(void) { // SDA goes LOW then SCL goes LOW
+    SDA_HIGH;
+    SCL_HIGH;
+    delay_cycles(5);
+    SDA_LOW;
+    delay_cycles(5);
+    SCL_LOW;
+    delay_cycles(5);
+}
+
+void I2C_Stop(void) { // SDA goes HIGH while SCL is HIGh
+    SDA_LOW;
+    delay_cycles(5);
+    SCL_HIGH;
+    delay_cycles(5);
+    SDA_HIGH;
+    delay_cycles(5);
+}
+
+void I2C_Write(uint8_t byte) {
+
+	for(int i = 7; i >= 0; i--) {
+		if ((byte >>  i) & 0x01) {
+			SDA_HIGH;
+		} else {
+			SDA_LOW;
+		}
+		// Pulse SCL once
+		delay_cycles(5);
+
+		SCL_HIGH;
+		delay_cycles(5);
+
+		SCL_LOW;
+		delay_cycles(5);
+
+	}
+
+    // NACK bit
+    SDA_HIGH;
+    delay_cycles(5);
+
+    SCL_HIGH;
+    delay_cycles(5);
+
+    //uint8_t ack = (HAL_GPIO_ReadPin(GPIOC, SDA_PIN) == GPIO_PIN_RESET)? 1 : 0;
+
+	SCL_LOW;
+	delay_cycles(5);
+
+}
+
+void I2C_Address(uint8_t address, uint8_t rw_bit) {
+    // Left-shift 7-bit address and insert R/W in LSB position
+    uint8_t addr_byte = (address << 1) | (rw_bit & 0x01);
+
+    I2C_Write(addr_byte);
+}
 
 /* USER CODE END 0 */
 
@@ -98,7 +171,13 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+	  I2C_Start();
+	  I2C_Address(address, 0);
+	  for (int i = 0; msg[i] != '\0'; i++) {
+	            I2C_Write((uint8_t)msg[i]);
+	        }
+	  I2C_Stop();
+	  HAL_Delay(500);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
