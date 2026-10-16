@@ -16,14 +16,150 @@
  ******************************************************************************
  */
 
+
 #include <stdint.h>
+
+#define LED 5
+#define BUTTON 13
+
+// RCC definitions
+#define RCC_BASE 0x40023800U
+#define RCC_APB1ENR (*(volatile uint32_t *) (RCC_BASE + 0x40U))
+#define RCC_AHB1ENR (*(volatile uint32_t *) (RCC_BASE + 0x30U))
+#define RCC_APB2ENR (*(volatile uint32_t *) (RCC_BASE + 0x44U))
+
+// timer (TIM2) definitions
+#define TIM2_BASE 0x40000000
+#define TIM2_CR1 (*(volatile uint32_t *) TIM2_BASE)
+#define TIM2_DIER (*(volatile uint32_t *) (TIM2_BASE + 0x0C)) // bit 0 -> enable update interrupt flag
+#define TIM2_SR (*(volatile uint32_t *) (TIM2_BASE + 0x10)) // bit 0 -> update interrupt status flag
+#define TIM2_PSC (*(volatile uint32_t *) (TIM2_BASE + 0x28U))
+#define TIM2_ARR (*(volatile uint32_t *) (TIM2_BASE + 0x2C))
+
+
+// GPIOA (LED) definitions
+#define GPIOA_BASE 0x40020000
+#define GPIOA_MODER (*(volatile uint32_t *) GPIOA_BASE)
+#define GPIOA_ODR (*(volatile uint32_t *) (GPIOA_BASE + 0x14)) // used bsrr instead of odr for speed
+#define GPIOA_BSRR (*(volatile uint32_t *) (GPIOA_BASE + 0x18)) // used bsrr instead of odr for speed
+
+// GPIOC (BUTTON) definitiONS
+#define GPIOC_BASE 0x40020800
+#define GPIOC_MODER (*(volatile uint32_t *) (GPIOC_BASE + 0x00))
+#define GPIOC_PUPDR (*(volatile uint32_t *) (GPIOC_BASE + 0x0C))
+
+// NVIC definitions
+#define NVIC_BASE 0xE000E000
+#define NVIC_ISER0 (*(volatile uint32_t *) (NVIC_BASE + 0x100)) // Priority for TIM2 is 28, so we use NVIC_ISER0
+#define NVIC_ISER1 (*(volatile uint32_t *) (NVIC_BASE + 0x104)) // Priority for EXTI15_10 is 47, so we use NVIC_ISER1
+
+// EXTI definitions
+#define EXTI_BASE 0x40013C00
+#define EXTI_IMR (*(volatile uint32_t *) EXTI_BASE)
+#define EXTI_FTSR (*(volatile uint32_t *) (EXTI_BASE + 0x0C))
+#define EXTI_PR (*(volatile uint32_t *) (EXTI_BASE + 0x14))
+
+// SYSCFG definitions
+#define SYSCFG_BASE 0x40013800
+#define SYSCFG_EXTICR4 (*(volatile uint32_t *) (SYSCFG_BASE + 0X14)) // because EXTI13
+
+// FSM definitions
+typedef enum{
+	MODE_OFF,
+	MODE_ON,
+	MODE_BLINK
+} mode_t;
+
+// set initial mode to OFF
+volatile mode_t current_mode = MODE_OFF;
+
+void LED_ON(void){
+	GPIOA_BSRR = (1U << LED); // Sets LED ODR to 1
+}
+
+void LED_OFF(void){
+	GPIOA_BSRR = (1U << (LED + 16)); // Resets LED ODR to 0
+}
+
+void LED_BLINK(void){ //blinks 4/2 = 2Hz
+	if (GPIOA_ODR & (1U << LED)){
+		LED_OFF();
+	} else{
+		LED_ON();
+	}
+}
+
 
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
   #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
 #endif
 
+void SYS_INIT(void){
+	// Enabling the clocks
+	RCC_AHB1ENR |= (1U<<0); // GPIOA
+	RCC_AHB1ENR |= (1U<<2); // GPIOC
+	RCC_APB1ENR |= (1U<<0); // TIM2
+	RCC_APB2ENR |= (1U<<14); //SYSCFGENR
+
+	// Setting LED mode to output
+	GPIOA_MODER &= ~(0x3U << (LED * 2)); // clear
+	GPIOA_MODER |= (0x1U << (LED * 2)); // set to output
+	LED_OFF();
+
+	// Setting button to pull up and input
+	GPIOC_MODER &= ~(0x3U << (BUTTON * 2)); // clear and input (00)
+	GPIOC_PUPDR &= ~(0x3U << (BUTTON * 2)); // clear
+	GPIOC_PUPDR |= (0x1U << (BUTTON * 2)); // set to output (01)
+
+	// NVIC settings
+	NVIC_ISER0 |= (1U << 28);
+	NVIC_ISER1 |= (1U << (40-32)); // Interrupt number 40, ISER 1 holds 32-63
+
+	// EXTI settings
+	EXTI_IMR |= (1U<<BUTTON); // unmask line button
+	EXTI_FTSR |= (1U<<BUTTON); // trigger falling edge on button
+
+	// SYSCFG settings
+	SYSCFG_EXTICR4 &= ~(0xFU << 4);
+	SYSCFG_EXTICR4 |= (0x2U << 4);
+
+	// TIM2 settings
+	TIM2_PSC = 16000 - 1; // 1KHz
+	TIM2_ARR = 250 - 1; // 4Hz
+	TIM2_DIER |= (1U<<0); // Enable update interrupt
+	TIM2_CR1 |= (1U<<0); // Enable counter
+
+
+}
+
+void EXTI15_10_IRQHandler(void){
+	if(EXTI_PR & (1U<<BUTTON)){
+		EXTI_PR = (1U << BUTTON); //clear button pending flag
+		if (current_mode == MODE_OFF){
+			current_mode = MODE_ON;
+			LED_ON();
+		} else if (current_mode == MODE_ON){
+			current_mode = MODE_BLINK;
+			LED_BLINK();
+		} else{
+			current_mode = MODE_OFF;
+			LED_OFF();
+		}
+	}
+}
+
+void TIM2_IRQHandler(void){
+	if (TIM2_SR & (1U<<0)){
+		TIM2_SR &= ~(1U<<0); //clear update interrupt flag
+		if (current_mode == MODE_BLINK){
+			LED_BLINK();
+		}
+	}
+}
+
 int main(void)
 {
-    /* Loop forever */
-	for(;;);
+   SYS_INIT();
+   while(1){
+   }
 }

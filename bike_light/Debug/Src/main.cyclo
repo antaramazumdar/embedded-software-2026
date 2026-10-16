@@ -1,0 +1,7 @@
+../Src/main.c:76:6:LED_ON	1
+../Src/main.c:80:6:LED_OFF	1
+../Src/main.c:84:6:LED_BLINK	2
+../Src/main.c:97:6:SYS_INIT	1
+../Src/main.c:135:6:EXTI15_10_IRQHandler	4
+../Src/main.c:151:6:TIM2_IRQHandler	3
+../Src/main.c:160:5:main	1
